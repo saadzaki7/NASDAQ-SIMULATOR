@@ -109,7 +109,7 @@ The output is a JSON array where each element represents a parsed ITCH message. 
 
 ## Performance
 
-The parser has been thoroughly tested with real NASDAQ ITCH data. Below are the performance benchmarks:
+The parser has been thoroughly tested with real NASDAQ ITCH data on a first-generation M1 Mac with 16GB RAM, running macOS Monterey (12.4) and using the Apple clang compiler (version 13.1.6). Below are the performance benchmarks:
 
 | Test Configuration | Messages | Time (s) | CPU Usage | Throughput (msgs/sec) |
 |-------------------|----------|----------|-----------|----------------------|
