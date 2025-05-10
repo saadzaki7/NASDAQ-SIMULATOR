@@ -3,13 +3,22 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <sstream>
-#include <filesystem>
-#include <nlohmann/json.hpp>
 #include <chrono>
 #include <map>
+#include <cstdint>
+#include <memory>
+#include <variant>
+#include <iomanip>
+#include <sys/resource.h>
 
 namespace fs = std::filesystem;
+
+// Function to get current memory usage in KB
+size_t get_memory_usage() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return usage.ru_maxrss;
+}
 
 // Default configuration
 bool debug_mode = false;
@@ -163,6 +172,7 @@ int main(int argc, char** argv) {
         size_t message_count = 0;
         bool first_message = true;
         auto start_time = std::chrono::high_resolution_clock::now();
+        size_t start_memory = get_memory_usage();
         
         while (auto message = parser->parse_message()) {
             if (!first_message) {
@@ -203,6 +213,8 @@ int main(int argc, char** argv) {
         
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        size_t end_memory = get_memory_usage();
+        size_t memory_used = end_memory - start_memory;
         
         // Write JSON array end
         *output_stream << "]";
@@ -215,8 +227,15 @@ int main(int argc, char** argv) {
         std::cout << "Successfully processed " << message_count << " messages." << std::endl;
         std::cout << "Output written to: " << config.output_path << std::endl;
         
-        // Print statistics if requested
-        // Print detailed statistics if requested
+        // Print processing performance statistics
+        std::cout << "\nPerformance metrics:" << std::endl;
+        std::cout << "-------------------" << std::endl;
+        std::cout << "Processing time: " << (duration / 1000.0) << " seconds" << std::endl;
+        std::cout << "Throughput: " << std::fixed << std::setprecision(2) 
+                  << (message_count * 1000.0 / duration) << " messages/second" << std::endl;
+        std::cout << "Memory usage: " << (memory_used / 1024.0) << " MB" << std::endl;
+        
+        // Print detailed message type statistics if requested
         if (config.show_stats) {
             std::cout << "\nMessage type statistics:" << std::endl;
             std::cout << "---------------------" << std::endl;

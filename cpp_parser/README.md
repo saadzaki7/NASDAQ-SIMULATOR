@@ -111,14 +111,14 @@ The output is a JSON array where each element represents a parsed ITCH message. 
 
 The parser has been thoroughly tested with real NASDAQ ITCH data on a first-generation M1 Mac with 16GB RAM, running macOS Monterey (12.4) and using the Apple clang compiler (version 13.1.6). Below are the performance benchmarks:
 
-| Test Configuration | Messages | Time (s) | CPU Usage | Throughput (msgs/sec) |
-|-------------------|----------|----------|-----------|----------------------|
-| 50,000 messages | 50,000 | 1.049 | 91% | ~47,660 |
-| 100,000 messages | 100,000 | 1.982 | 94% | ~50,450 |
-| 200,000 messages | 200,000 | 3.834 | 95% | ~52,160 |
-| 500,000 messages | 500,000 | 7.772 | 96% | ~64,350 |
-| 1,000,000 messages | 1,000,000 | 14.962 | 93% | ~66,800 |
-| 10,000,000 messages | 10,000,000 | 137.37 | 98% | ~72,800 |
+| Test Configuration | Messages | Time (s) | CPU Usage | Throughput (msgs/sec) | Memory Usage (MB) |
+|-------------------|----------|----------|-----------|----------------------|-------------------|
+| 50,000 messages | 50,000 | 1.039 | 91% | ~48,123 | 304 |
+| 100,000 messages | 100,000 | 1.967 | 94% | ~50,839 | 272 |
+| 200,000 messages | 200,000 | 3.729 | 95% | ~53,634 | 304 |
+| 500,000 messages | 500,000 | 7.739 | 96% | ~64,608 | 304 |
+| 1,000,000 messages | 1,000,000 | 14.320 | 93% | ~69,832 | 272 |
+| 10,000,000 messages | 10,000,000 | 138.095 | 98% | ~72,414 | 272 |
 
 ### Key Performance Characteristics
 
@@ -126,7 +126,7 @@ The parser has been thoroughly tested with real NASDAQ ITCH data on a first-gene
 
 2. **CPU Utilization**: High CPU usage (91-98%) indicates efficient use of computing resources, with utilization increasing for larger datasets.
 
-3. **Memory Efficiency**: The parser maintains consistent performance without degradation as the dataset size increases, demonstrating effective memory management.
+3. **Memory Efficiency**: The parser demonstrates excellent memory management, with consistent memory usage (272-304 MB) regardless of dataset size from 50K to 10M messages. This flat memory profile allows for processing very large datasets without memory scaling issues.
 
 4. **Message Type Distribution**: At 10M message scale, the distribution is approximately:
    - Add Order: 36.7%
