@@ -9,7 +9,6 @@ namespace itch {
 
 Parser::Parser(std::unique_ptr<std::istream> stream)
     : stream(std::move(stream)), buffer(BUFFER_SIZE) {
-    // Initialize the buffer
     fetch_more_bytes();
 }
 
@@ -22,13 +21,11 @@ std::unique_ptr<Parser> Parser::from_file(const std::string& path) {
 }
 
 std::unique_ptr<Parser> Parser::from_gzip(const std::string& path) {
-    // Open the gzipped file
     auto file = std::make_unique<std::ifstream>(path, std::ios::binary);
     if (!file->is_open()) {
         throw std::runtime_error("Could not open gzipped file: " + path);
     }
     
-    // Gzip decompression not implemented in current version
     throw std::runtime_error("Gzip decompression not available - please use uncompressed ITCH files");
 }
 
@@ -42,7 +39,6 @@ void Parser::reset() {
     is_end_of_stream = false;
     
     if (stream) {
-        // Reset the stream to the beginning
         stream->clear();
         stream->seekg(0, std::ios::beg);
         fetch_more_bytes();
@@ -54,7 +50,6 @@ bool Parser::fetch_more_bytes() {
         return false;
     }
     
-    // If we've consumed more than half the buffer, move the remaining data to the beginning
     if (current_pos > BUFFER_SIZE / 2) {
         const size_t remaining = bytes_read - current_pos;
         if (remaining > 0) {
@@ -64,7 +59,6 @@ bool Parser::fetch_more_bytes() {
         current_pos = 0;
     }
     
-    // Fill the rest of the buffer
     const size_t bytes_to_read = BUFFER_SIZE - bytes_read;
     if (bytes_to_read > 0) {
         stream->read(reinterpret_cast<char*>(buffer.data() + bytes_read), bytes_to_read);
@@ -98,7 +92,6 @@ uint16_t Parser::read_u16() {
         }
     }
     
-    // Read big-endian 16-bit value
     const uint16_t value = static_cast<uint16_t>(buffer[current_pos]) << 8 |
                           static_cast<uint16_t>(buffer[current_pos + 1]);
     current_pos += sizeof(uint16_t);
@@ -112,7 +105,6 @@ uint32_t Parser::read_u32() {
         }
     }
     
-    // Read big-endian 32-bit value
     const uint32_t value = static_cast<uint32_t>(buffer[current_pos]) << 24 |
                           static_cast<uint32_t>(buffer[current_pos + 1]) << 16 |
                           static_cast<uint32_t>(buffer[current_pos + 2]) << 8 |
@@ -128,7 +120,6 @@ uint64_t Parser::read_u64() {
         }
     }
     
-    // Read big-endian 64-bit value
     const uint64_t value = static_cast<uint64_t>(buffer[current_pos]) << 56 |
                           static_cast<uint64_t>(buffer[current_pos + 1]) << 48 |
                           static_cast<uint64_t>(buffer[current_pos + 2]) << 40 |
@@ -148,7 +139,6 @@ uint64_t Parser::read_u48() {
         }
     }
     
-    // Read big-endian 48-bit value
     const uint64_t value = static_cast<uint64_t>(buffer[current_pos]) << 40 |
                           static_cast<uint64_t>(buffer[current_pos + 1]) << 32 |
                           static_cast<uint64_t>(buffer[current_pos + 2]) << 24 |
@@ -212,67 +202,67 @@ std::optional<Message> Parser::parse_message() {
         MessageBody body;
         
         switch (message_type) {
-            case 'S': // System Event
+            case 'S':
                 body = parse_system_event();
                 break;
-            case 'R': // Stock Directory
+            case 'R':
                 body = parse_stock_directory();
                 break;
-            case 'H': // Trading Action
+            case 'H':
                 body = parse_trading_action();
                 break;
-            case 'Y': // Reg SHO Short Sale Price Test Restricted Indicator
+            case 'Y':
                 body = parse_reg_sho_restriction();
                 break;
-            case 'L': // Market Participant Position
+            case 'L':
                 body = parse_participant_position();
                 break;
-            case 'A': // Add Order (no MPID)
+            case 'A':
                 body = parse_add_order(false);
                 break;
-            case 'F': // Add Order with MPID
+            case 'F':
                 body = parse_add_order(true);
                 break;
-            case 'E': // Order Executed
+            case 'E':
                 body = parse_order_executed();
                 break;
-            case 'C': // Order Executed With Price
+            case 'C':
                 body = parse_order_executed_with_price();
                 break;
-            case 'X': // Order Cancel
+            case 'X':
                 body = parse_order_cancelled();
                 break;
-            case 'D': // Order Delete
+            case 'D':
                 body = parse_delete_order();
                 break;
-            case 'U': // Order Replace
+            case 'U':
                 body = parse_replace_order();
                 break;
-            case 'P': // Trade (Non-Cross)
+            case 'P':
                 body = parse_noncross_trade();
                 break;
-            case 'Q': // Cross Trade
+            case 'Q':
                 body = parse_cross_trade();
                 break;
-            case 'B': // Broken Trade
+            case 'B':
                 body = parse_broken_trade();
                 break;
-            case 'I': // NOII (Imbalance)
+            case 'I':
                 body = parse_imbalance_indicator();
                 break;
-            case 'N': // Retail Price Improvement Indicator
+            case 'N':
                 body = parse_retail_price_improvement_indicator();
                 break;
-            case 'K': // IPO Quoting Period Update
+            case 'K':
                 body = parse_ipo_quoting_period();
                 break;
-            case 'J': // LULD Auction Collar
+            case 'J':
                 body = parse_luld_auction_collar();
                 break;
-            case 'V': // MWCB Decline Level
+            case 'V':
                 body = parse_mwcb_decline_level();
                 break;
-            case 'W': // MWCB Breach
+            case 'W':
                 body = parse_breach();
                 break;
             default:
@@ -409,7 +399,6 @@ TradingAction Parser::parse_trading_action() {
             throw std::runtime_error("Unknown trading state: " + std::string(1, trading_state_char));
     }
     
-    // Skip reserved byte
     read_u8();
     
     ArrayString4 reason = read_array_string4();
@@ -760,4 +749,4 @@ LevelBreached Parser::parse_breach() {
     }
 }
 
-} // namespace itch
+} 
