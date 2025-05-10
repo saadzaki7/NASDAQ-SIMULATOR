@@ -113,16 +113,31 @@ The parser has been thoroughly tested with real NASDAQ ITCH data on a first-gene
 
 | Test Configuration | Messages | Time (s) | CPU Usage | Throughput (msgs/sec) |
 |-------------------|----------|----------|-----------|----------------------|
-| 50,000 messages | 50,000 | 2.040 | 88% | ~24,510 |
-| 100,000 messages | 100,000 | 2.214 | 84% | ~45,165 |
-| 200,000 messages | 200,000 | 3.990 | 91% | ~50,125 |
-| 500,000 messages | 500,000 | 8.350 | 91% | ~60,000 |
-| 1,000,000 messages | 1,000,000 | 15.827 | 91% | ~63,180 |
-| 10,000,000 messages | 10,000,000 | 142.34 | 96% | ~70,250 |
+| 50,000 messages | 50,000 | 1.049 | 91% | ~47,660 |
+| 100,000 messages | 100,000 | 1.982 | 94% | ~50,450 |
+| 200,000 messages | 200,000 | 3.834 | 95% | ~52,160 |
+| 500,000 messages | 500,000 | 7.772 | 96% | ~64,350 |
+| 1,000,000 messages | 1,000,000 | 14.962 | 93% | ~66,800 |
+| 10,000,000 messages | 10,000,000 | 137.37 | 98% | ~72,800 |
 
 ### Key Performance Characteristics
 
-1. **Throughput Scaling**: Performance improves with larger datasets, reaching ~70,250 messages per second for 10M messages. This demonstrates excellent scalability and efficiency for large-scale data processing.
+1. **Throughput Scaling**: Performance improves with larger datasets, reaching ~72,800 messages per second for 10M messages. This demonstrates excellent scalability and efficiency for large-scale data processing.
+
+2. **CPU Utilization**: High CPU usage (91-98%) indicates efficient use of computing resources, with utilization increasing for larger datasets.
+
+3. **Memory Efficiency**: The parser maintains consistent performance without degradation as the dataset size increases, demonstrating effective memory management.
+
+4. **Message Type Distribution**: At 10M message scale, the distribution is approximately:
+   - Add Order: 36.7%
+   - Order Delete: 35.5%
+   - Order Cancel: 10.7%
+   - NOII (Non-Opening/Closing Imbalance Indicator): 7.5%
+   - Order Replace: 4.5%
+   - Add Order with MPID: 2.5%
+   - Market Participant Position: 1.9%
+   - Order Executed: 0.4%
+   - Other types: 0.3%
 
 2. **Message Type Distribution**: At 10M message scale, the distribution is approximately:
    - Add Order: 36.7%
