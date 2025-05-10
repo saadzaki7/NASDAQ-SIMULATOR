@@ -126,7 +126,7 @@ The parser has been thoroughly tested with real NASDAQ ITCH data on a first-gene
 
 2. **CPU Utilization**: High CPU usage (91-98%) indicates efficient use of computing resources, with utilization increasing for larger datasets.
 
-3. **Memory Efficiency**: The parser demonstrates excellent memory management, with consistent memory usage (272-304 MB) regardless of dataset size from 50K to 10M messages. This flat memory profile allows for processing very large datasets without memory scaling issues.
+3. **Memory Efficiency**: The parser demonstrates performant memory management, with consistent memory usage (272-304 MB) regardless of dataset size from 50K to 10M messages. This flat memory profile allows for processing very large datasets without memory scaling issues.
 
 4. **Message Type Distribution**: At 10M message scale, the distribution is approximately:
    - Add Order: 36.7%
