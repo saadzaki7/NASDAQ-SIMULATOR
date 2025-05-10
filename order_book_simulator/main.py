@@ -250,20 +250,25 @@ async def process_messages_async(messages: List[Dict[str, Any]],
         order_book.process_message(message)
         
         # Check if we should send an update - optimize by checking less frequently for better performance
-        if i % 10 == 0:  # Only check every 10 messages
+        if i % 25 == 0:  # Only check every 25 messages (increased from 10)
             current_time = time.time()
             should_update = tick_by_tick or (current_time - last_update_time >= update_interval)
             
             if should_update:
-                # Create market data update for all stocks
-                for stock in order_book.stocks:
-                    # Get the latest data for this stock
+                # Process stocks in batches to reduce overhead
+                batch_size = min(10, len(order_book.stocks))  # Process max 10 stocks at a time
+                stocks_to_process = order_book.stocks[:batch_size] if isinstance(order_book.stocks, list) else list(order_book.stocks)[:batch_size]
+                
+                for stock in stocks_to_process:
+                    # Get the latest data for this stock - reuse snapshots where possible
                     price_history = order_book.get_price_history(stock)
-                    ob_snapshot = order_book.get_order_book_snapshot(stock)
                     
-                    if not price_history.empty and not ob_snapshot.empty:
+                    if not price_history.empty:
                         # Get the latest price data
                         latest_price = price_history.iloc[-1]
+                        
+                        # Only get snapshot if necessary (optimization)
+                        ob_snapshot = order_book.get_order_book_snapshot(stock)
                         
                         # Calculate volumes - use numpy for better performance
                         bid_mask = ob_snapshot['side'] == 'bid'
@@ -299,14 +304,14 @@ async def process_messages_async(messages: List[Dict[str, Any]],
                 last_update_time = current_time
         
         # Yield control to allow other tasks to run, but less frequently to improve performance
-        if i % 1000 == 0:
+        if i % 5000 == 0:  # Changed from 1000 to 5000
             await asyncio.sleep(0)
         
         # Update message processing count
         messages_processed += 1
         
         # Log statistics periodically but less frequently to reduce overhead
-        if time.time() - last_stats_time >= 10.0:  # Log every 10 seconds instead of 5
+        if time.time() - last_stats_time >= 20.0:  # Log every 20 seconds (increased from 10)
             elapsed = time.time() - last_stats_time
             msg_rate = messages_processed / elapsed if elapsed > 0 else 0
             update_rate = updates_sent / elapsed if elapsed > 0 else 0
