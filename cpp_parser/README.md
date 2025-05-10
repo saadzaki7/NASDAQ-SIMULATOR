@@ -118,22 +118,26 @@ The parser has been thoroughly tested with real NASDAQ ITCH data on a first-gene
 | 200,000 messages | 200,000 | 3.990 | 91% | ~50,125 |
 | 500,000 messages | 500,000 | 8.350 | 91% | ~60,000 |
 | 1,000,000 messages | 1,000,000 | 15.827 | 91% | ~63,180 |
+| 10,000,000 messages | 10,000,000 | 142.34 | 96% | ~70,250 |
 
 ### Key Performance Characteristics
 
-1. **Throughput Scaling**: Performance improves with larger datasets, reaching ~63,000 messages per second for 1M messages.
+1. **Throughput Scaling**: Performance improves with larger datasets, reaching ~70,250 messages per second for 10M messages. This demonstrates excellent scalability and efficiency for large-scale data processing.
 
-2. **Message Type Distribution**: At scale, the distribution is approximately:
-   - Add Order: 31.3%
-   - Order Delete: 30.6%
-   - Market Participant Position: 19.4%
-   - Order Cancel: 12.7%
-   - Order Replace: 3.3%
-   - Other types: 3.0%
+2. **Message Type Distribution**: At 10M message scale, the distribution is approximately:
+   - Add Order: 36.7%
+   - Order Delete: 35.5%
+   - Order Cancel: 10.7%
+   - NOII (Non-Opening/Closing Imbalance Indicator): 7.5%
+   - Order Replace: 4.5%
+   - Add Order with MPID: 2.5%
+   - Market Participant Position: 1.9%
+   - Order Executed: 0.4%
+   - Other types: 0.3%
 
 3. **Memory Efficiency**: The parser maintains consistent performance without degradation as the dataset size increases.
 
-4. **CPU Utilization**: High CPU usage (84-91%) indicates efficient use of computing resources.
+4. **CPU Utilization**: High CPU usage (84-96%) indicates efficient use of computing resources, with utilization increasing for larger datasets.
 
 ## License
 
