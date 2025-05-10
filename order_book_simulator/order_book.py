@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
-from collections import defaultdict
+from collections import defaultdict, deque
 import logging
 
 # Configure logging
@@ -49,11 +49,15 @@ class OrderBook:
             lambda: {"bid": None, "ask": None}
         )
         
-        # Dictionary to store price time series for each stock
-        self.price_history: Dict[str, List[Tuple[int, float, float]]] = defaultdict(list)
+        # Use deque for price history instead of list (faster appends, fixed size)
+        self.price_history_max_size = 1000  # Limit history to 1000 entries per stock
+        self.price_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.price_history_max_size))
         
         # Set of all stocks seen
         self.stocks = set()
+        
+        # Cache for order book snapshots
+        self.snapshot_cache: Dict[str, Tuple[int, pd.DataFrame]] = {}
         
         # Message counters for statistics
         self.message_counts = {
@@ -324,6 +328,11 @@ class OrderBook:
         
         # Only add to history if both bid and ask are available
         if bid is not None and ask is not None:
+            # Ensure stock is in tracked stocks list
+            if stock not in self.stocks:
+                self.stocks.append(stock)
+                
+            # Add to deque (automatically manages fixed size)
             self.price_history[stock].append((timestamp, bid, ask))
 
     def get_order_book_snapshot(self, stock: str) -> pd.DataFrame:
@@ -331,45 +340,60 @@ class OrderBook:
         Get a snapshot of the current order book for a stock.
         
         Returns a DataFrame with price levels and volumes for both sides of the book.
+        Uses caching to avoid redundant calculations.
         """
         if stock not in self.books:
             return pd.DataFrame()
+            
+        # Check cache first - use message count as version to determine if cache is fresh
+        # Only use cache if less than 5 messages have been processed since the cache was created
+        current_msg_count = self.message_counts["total"]
+        if stock in self.snapshot_cache:
+            cache_msg_count, snapshot = self.snapshot_cache[stock]
+            if current_msg_count - cache_msg_count < 5:  # Cache is recent enough
+                return snapshot
         
-        # Prepare data for bids and asks
-        bid_data = []
-        for price, volume in sorted(self.books[stock]["bids"].items(), reverse=True):
-            bid_data.append({"price": price, "volume": volume, "side": "bid"})
+        # Use list comprehensions for better performance
+        bid_data = [{"price": price, "volume": volume, "side": "bid"} 
+                   for price, volume in sorted(self.books[stock]["bids"].items(), reverse=True)]
         
-        ask_data = []
-        for price, volume in sorted(self.books[stock]["asks"].items()):
-            ask_data.append({"price": price, "volume": volume, "side": "ask"})
+        ask_data = [{"price": price, "volume": volume, "side": "ask"} 
+                   for price, volume in sorted(self.books[stock]["asks"].items())]
         
         # Combine and create DataFrame
         all_data = bid_data + ask_data
         if not all_data:
             return pd.DataFrame()
         
-        return pd.DataFrame(all_data)
+        snapshot = pd.DataFrame(all_data)
+        
+        # Update cache
+        self.snapshot_cache[stock] = (current_msg_count, snapshot)
+        
+        return snapshot
 
     def get_price_history(self, stock: str) -> pd.DataFrame:
         """
         Get the price history for a stock.
         
         Returns a DataFrame with timestamps, bid prices, and ask prices.
+        Optimized for performance with list conversion.
         """
         if stock not in self.price_history or not self.price_history[stock]:
             return pd.DataFrame()
         
-        data = []
-        for timestamp, bid, ask in self.price_history[stock]:
-            data.append({
-                "timestamp": timestamp,
-                "bid": bid,
-                "ask": ask,
-                "mid": (bid + ask) / 2
-            })
+        # Convert deque to list once for better performance
+        price_data = list(self.price_history[stock])
+        if not price_data:
+            return pd.DataFrame()
+            
+        # Create DataFrame - use direct constructor for better performance
+        df = pd.DataFrame(price_data, columns=["timestamp", "bid", "ask"])
         
-        return pd.DataFrame(data)
+        # Calculate mid price - use vectorized operations
+        df["mid"] = (df["bid"] + df["ask"]) / 2
+        
+        return df
 
     def get_summary_statistics(self) -> pd.DataFrame:
         """
