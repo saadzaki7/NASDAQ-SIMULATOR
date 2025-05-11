@@ -67,25 +67,25 @@ void OrderBook::process_message(const std::string& message_json) {
             }
             else if (body.contains("OrderExecuted")) {
                 const auto& executed = body["OrderExecuted"];
-                if (!executed.contains("reference") || !executed.contains("executed_shares")) {
+                if (!executed.contains("reference") || !executed.contains("executed")) {
                     std::cerr << "OrderExecuted message missing required fields, skipping" << std::endl;
                     return;
                 }
-                process_execute_order(executed["reference"].get<uint64_t>(), executed["executed_shares"].get<uint32_t>());
+                process_execute_order(executed["reference"].get<uint64_t>(), executed["executed"].get<uint32_t>());
             }
             else if (body.contains("OrderCancelled")) {
                 const auto& cancelled = body["OrderCancelled"];
-                if (!cancelled.contains("reference") || !cancelled.contains("cancelled_shares")) {
+                if (!cancelled.contains("reference") || !cancelled.contains("cancelled")) {
                     std::cerr << "OrderCancelled message missing required fields, skipping" << std::endl;
                     return;
                 }
-                process_cancel_order(cancelled["reference"].get<uint64_t>(), cancelled["cancelled_shares"].get<uint32_t>());
+                process_cancel_order(cancelled["reference"].get<uint64_t>(), cancelled["cancelled"].get<uint32_t>());
             }
             else if (body.contains("ReplaceOrder")) {
                 const auto& replace = body["ReplaceOrder"];
                 if (!replace.contains("original_reference") || !replace.contains("new_reference") || 
                     !replace.contains("price") || !replace.contains("shares")) {
-                    std::cerr << "ReplaceOrder message missing required fields, skipping" << std::endl;
+                    // Skip silently
                     return;
                 }
                 
