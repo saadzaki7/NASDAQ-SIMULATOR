@@ -5,12 +5,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Callable, Awaitable
 from tqdm import tqdm
 import sys
 import os
 import logging
 import time
+import asyncio
+from queue import Queue
+import signal
 
 # Configure logging
 logging.basicConfig(
@@ -23,6 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
+# Import the OrderBook class
 from order_book import OrderBook
 
 
@@ -63,6 +67,22 @@ def parse_arguments():
         "--verbose", 
         action="store_true", 
         help="Enable verbose output"
+    )
+    parser.add_argument(
+        "--trading-engine",
+        action="store_true",
+        help="Enable trading engine integration"
+    )
+    parser.add_argument(
+        "--update-interval",
+        type=float,
+        default=0.01,
+        help="Interval between market data updates in seconds (default: 0.01)"
+    )
+    parser.add_argument(
+        "--tick-by-tick",
+        action="store_true",
+        help="Send market data updates for every tick"
     )
     
     return parser.parse_args()
@@ -173,52 +193,136 @@ def process_messages(messages: List[Dict[str, Any]], verbose: bool = False) -> O
     Returns:
         Populated OrderBook instance
     """
-    order_book = OrderBook()
-    start_time = time.time()
-    
     logger.info(f"Processing {len(messages)} messages...")
     
-    # Track message types for debugging
-    message_types = {}
-    stock_counts = {}
+    # Create order book
+    order_book = OrderBook()
     
-    for i, msg in enumerate(tqdm(messages)):
+    # Process messages with progress bar
+    for i, message in enumerate(tqdm(messages, desc="Processing messages")):
+        order_book.process_message(message)
+        
+        if verbose and i % 1000 == 0:
+            logger.info(f"Processed {i+1}/{len(messages)} messages")
+    
+    logger.info(f"Processed {len(messages)} messages")
+    logger.info(f"Found {len(order_book.stocks)} unique stocks: {', '.join(sorted(order_book.stocks))}")
+    
+    return order_book
+
+
+async def process_messages_async(messages: List[Dict[str, Any]], 
+                               market_data_queue: asyncio.Queue,
+                               update_interval: float = 0.01,
+                               tick_by_tick: bool = False,
+                               verbose: bool = False) -> OrderBook:
+    """
+    Process messages asynchronously and build the order book, publishing updates to a queue.
+    
+    Args:
+        messages: List of message dictionaries
+        market_data_queue: Queue to publish market data updates
+        update_interval: Interval between market data updates in seconds
+        tick_by_tick: Whether to send updates for every tick
+        verbose: Whether to print verbose output
+        
+    Returns:
+        Populated OrderBook instance
+    """
+    logger.info(f"Processing {len(messages)} messages asynchronously...")
+    logger.info(f"Configuration: update_interval={update_interval}s, tick_by_tick={tick_by_tick}, verbose={verbose}")
+    logger.debug(f"Market data queue: {market_data_queue}, max size: {market_data_queue.maxsize}")
+    
+    # Track statistics for debugging
+    updates_sent = 0
+    last_stats_time = time.time()
+    messages_processed = 0
+    
+    # Create order book
+    order_book = OrderBook()
+    
+    # Track last update time
+    last_update_time = time.time()
+    
+    # Process messages with progress bar
+    for i, message in enumerate(tqdm(messages, desc="Processing messages")):
         # Process the message
-        order_book.process_message(msg)
+        order_book.process_message(message)
         
-        # Debug: Track message types
-        if 'body' in msg and msg['body']:
-            msg_type = list(msg['body'].keys())[0] if msg['body'] else 'Unknown'  
-            message_types[msg_type] = message_types.get(msg_type, 0) + 1
+        # Check if we should send an update - optimize by checking less frequently for better performance
+        if i % 10 == 0:  # Only check every 10 messages
+            current_time = time.time()
+            should_update = tick_by_tick or (current_time - last_update_time >= update_interval)
             
-            # Track stocks
-            if msg_type in ['AddOrder', 'DeleteOrder', 'OrderExecuted']:
-                body_content = msg['body'][msg_type]
-                if 'stock' in body_content:
-                    stock = body_content['stock'].strip()
-                    stock_counts[stock] = stock_counts.get(stock, 0) + 1
+            if should_update:
+                # Create market data update for all stocks
+                for stock in order_book.stocks:
+                    # Get the latest data for this stock
+                    price_history = order_book.get_price_history(stock)
+                    ob_snapshot = order_book.get_order_book_snapshot(stock)
+                    
+                    if not price_history.empty and not ob_snapshot.empty:
+                        # Get the latest price data
+                        latest_price = price_history.iloc[-1]
+                        
+                        # Calculate volumes - use numpy for better performance
+                        bid_mask = ob_snapshot['side'] == 'bid'
+                        ask_mask = ob_snapshot['side'] == 'ask'
+                        bid_volume = ob_snapshot.loc[bid_mask, 'volume'].sum()
+                        ask_volume = ob_snapshot.loc[ask_mask, 'volume'].sum()
+                        
+                        # Calculate imbalance
+                        total_volume = bid_volume + ask_volume
+                        imbalance = 0.0
+                        if total_volume > 0:
+                            imbalance = (bid_volume - ask_volume) / total_volume
+                        
+                        # Create market data update - use direct values to avoid type conversions
+                        market_data = {
+                            'timestamp': int(latest_price['timestamp']),
+                            'symbol': stock.strip(),
+                            'bid_price': float(latest_price['bid']),
+                            'ask_price': float(latest_price['ask']),
+                            'mid_price': float(latest_price['mid']),
+                            'bid_volume': int(bid_volume),
+                            'ask_volume': int(ask_volume),
+                            'imbalance': float(imbalance),
+                            'spread': float(latest_price['ask'] - latest_price['bid']),
+                            'spread_pct': float((latest_price['ask'] - latest_price['bid']) / latest_price['mid'] * 100)
+                        }
+                        
+                        # Put the update in the queue - skip debug logging for better performance
+                        await market_data_queue.put(market_data)
+                        updates_sent += 1
+                
+                # Update last update time
+                last_update_time = current_time
         
-        # Log progress
-        if (i+1) % 1000 == 0:
-            elapsed = time.time() - start_time
-            rate = (i+1) / elapsed if elapsed > 0 else 0
-            logger.info(f"Processed {i+1}/{len(messages)} messages ({(i+1)/len(messages)*100:.1f}%). Rate: {rate:.1f} msgs/sec")
-            
-            if verbose:
-                # Log current order book stats
-                logger.info(f"Current stats: {len(order_book.stocks)} stocks, {len(order_book.orders)} active orders")
-                
-                # Log message type distribution
-                logger.info(f"Message types: {message_types}")
-                
-                # Log top 5 stocks by message count
-                top_stocks = sorted(stock_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-                logger.info(f"Top stocks: {top_stocks}")
+        # Yield control to allow other tasks to run, but less frequently to improve performance
+        if i % 1000 == 0:
+            await asyncio.sleep(0)
+        
+        # Update message processing count
+        messages_processed += 1
+        
+        # Log statistics periodically but less frequently to reduce overhead
+        if time.time() - last_stats_time >= 10.0:  # Log every 10 seconds instead of 5
+            elapsed = time.time() - last_stats_time
+            msg_rate = messages_processed / elapsed if elapsed > 0 else 0
+            update_rate = updates_sent / elapsed if elapsed > 0 else 0
+            logger.info(f"Progress: {i+1}/{len(messages)} messages ({msg_rate:.1f} msgs/sec), {updates_sent} updates sent ({update_rate:.1f} updates/sec)")
+            messages_processed = 0
+            updates_sent = 0
+            last_stats_time = time.time()
+        
+        if verbose and i % 1000 == 0:
+            logger.info(f"Processed {i+1}/{len(messages)} messages")
     
-    elapsed_time = time.time() - start_time
-    logger.info(f"Processed {len(messages)} messages in {elapsed_time:.2f} seconds ({len(messages)/elapsed_time:.1f} msgs/sec)")
-    logger.info(f"Final message type distribution: {message_types}")
-    logger.info(f"Found {len(order_book.stocks)} unique stocks")
+    # Send final update
+    await market_data_queue.put(None)  # Signal end of data
+    
+    logger.info(f"Processed {len(messages)} messages asynchronously")
+    logger.info(f"Found {len(order_book.stocks)} unique stocks: {', '.join(sorted(order_book.stocks))}")
     
     return order_book
 
@@ -310,10 +414,14 @@ def generate_reports(order_book: OrderBook, output_dir: str, generate_plots: boo
                         plt.close()
 
 
-def main():
-    """Main function to run the order book simulator."""
-    args = parse_arguments()
+async def run_order_book_simulator(market_data_queue: asyncio.Queue, args):
+    """
+    Run the order book simulator asynchronously.
     
+    Args:
+        market_data_queue: Queue to publish market data updates
+        args: Command line arguments
+    """
     # Load data
     messages = load_json_data(args.input_file, args.num_messages)
     
@@ -321,8 +429,18 @@ def main():
     if args.stocks:
         messages = filter_messages_by_stocks(messages, args.stocks)
     
-    # Process messages
-    order_book = process_messages(messages, args.verbose)
+    # Process messages asynchronously if trading engine is enabled
+    if args.trading_engine:
+        order_book = await process_messages_async(
+            messages, 
+            market_data_queue,
+            update_interval=args.update_interval,
+            tick_by_tick=args.tick_by_tick,
+            verbose=args.verbose
+        )
+    else:
+        # Process messages synchronously
+        order_book = process_messages(messages, args.verbose)
     
     # Generate reports
     generate_reports(order_book, args.output_dir, not args.no_plots)
@@ -330,6 +448,45 @@ def main():
     print(f"\nProcessed {order_book.message_counts['total']} messages")
     print(f"Found {len(order_book.stocks)} unique stocks")
     print(f"Output saved to {args.output_dir}")
+    
+    return order_book
+
+def main():
+    """Main function to run the order book simulator."""
+    args = parse_arguments()
+    
+    # Check if trading engine is enabled
+    if args.trading_engine:
+        # Create event loop
+        loop = asyncio.get_event_loop()
+        
+        # Create market data queue
+        market_data_queue = asyncio.Queue()
+        
+        # Run the order book simulator
+        try:
+            loop.run_until_complete(run_order_book_simulator(market_data_queue, args))
+        except KeyboardInterrupt:
+            logger.info("Order book simulator stopped by user")
+        finally:
+            loop.close()
+    else:
+        # Load data
+        messages = load_json_data(args.input_file, args.num_messages)
+        
+        # Filter by stocks if specified
+        if args.stocks:
+            messages = filter_messages_by_stocks(messages, args.stocks)
+        
+        # Process messages
+        order_book = process_messages(messages, args.verbose)
+        
+        # Generate reports
+        generate_reports(order_book, args.output_dir, not args.no_plots)
+        
+        print(f"\nProcessed {order_book.message_counts['total']} messages")
+        print(f"Found {len(order_book.stocks)} unique stocks")
+        print(f"Output saved to {args.output_dir}")
 
 
 if __name__ == "__main__":

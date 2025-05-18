@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from collections import defaultdict
@@ -436,3 +437,74 @@ class OrderBook:
         } for msg_type, count in self.message_counts.items() if msg_type != "total"]
         
         return pd.DataFrame(data)
+        
+    def export_mega_csv(self, output_path: str) -> str:
+        """
+        Export a timestamp-sorted mega CSV with all price updates for all stocks.
+        
+        Args:
+            output_path: Directory to save the mega CSV file
+            
+        Returns:
+            Path to the created CSV file
+        """
+        logger.info(f"Exporting mega CSV with all price updates to {output_path}")
+        
+        # Create a list to store all price updates
+        all_updates = []
+        
+        # Process each stock's price history
+        for stock in self.stocks:
+            price_history = self.get_price_history(stock)
+            
+            if not price_history.empty:
+                # Add stock symbol to each row
+                price_history['stock'] = stock
+                
+                # Calculate additional metrics
+                price_history['spread'] = price_history['ask'] - price_history['bid']
+                price_history['spread_pct'] = (price_history['spread'] / price_history['mid']) * 100
+                
+                # Get volume information from the current order book
+                current_ob = self.get_order_book_snapshot(stock)
+                bid_volume = 0
+                ask_volume = 0
+                
+                if not current_ob.empty:
+                    bid_volume = current_ob[current_ob['side'] == 'bid']['volume'].sum()
+                    ask_volume = current_ob[current_ob['side'] == 'ask']['volume'].sum()
+                
+                # Add volume info to each row
+                price_history['bid_volume'] = bid_volume
+                price_history['ask_volume'] = ask_volume
+                
+                # Calculate imbalance
+                total_volume = bid_volume + ask_volume
+                imbalance = 0
+                if total_volume > 0:
+                    imbalance = (bid_volume - ask_volume) / total_volume
+                price_history['imbalance'] = imbalance
+                
+                # Add to the list of all updates
+                all_updates.append(price_history)
+        
+        # Combine all updates into a single DataFrame
+        if not all_updates:
+            logger.warning("No price updates found for any stock")
+            return ""
+        
+        mega_df = pd.concat(all_updates, ignore_index=True)
+        
+        # Sort by timestamp
+        mega_df = mega_df.sort_values('timestamp')
+        
+        # Convert timestamp to datetime for better readability
+        mega_df['datetime'] = pd.to_datetime(mega_df['timestamp'] / 1e9, unit='s')
+        
+        # Save to CSV
+        output_file = os.path.join(output_path, "all_price_updates.csv")
+        mega_df.to_csv(output_file, index=False)
+        
+        logger.info(f"Exported {len(mega_df)} price updates for {len(self.stocks)} stocks to {output_file}")
+        
+        return output_file
