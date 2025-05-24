@@ -6,7 +6,7 @@ import time
 import json
 import pandas as pd
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 import asyncio
@@ -59,26 +59,28 @@ class TradingEngine:
         self.next_order_id = 1
         self.next_trade_id = 1
         
-        # Market data cache
+        # Market data cache - use deque for fixed-size history
         self.market_data = {}  # symbol -> latest market data
         self.order_books = {}  # symbol -> order book snapshot
-        self.price_history = defaultdict(list)  # symbol -> list of price points
+        self.price_history = defaultdict(lambda: deque(maxlen=100))  # symbol -> limited history of price points
         
-        # Strategy parameters
+        # Strategy parameters for Liquidity Reversion HFT strategy
         self.strategy_params = {
-            'lob_imbalance_threshold': 2.0,  # Bid volume > Ask volume by this factor
-            'min_consecutive_ticks': 5,      # Number of consecutive ticks with imbalance
-            'profit_target_pct': 0.1,        # Target profit percentage
-            'stop_loss_pct': 0.05,           # Stop loss percentage
-            'order_timeout_ticks': 10,       # Cancel unfilled orders after this many ticks
-            'position_size_pct': 0.01,       # Position size as percentage of capital
+            'liquidity_threshold': 1.5,      # Imbalance threshold (ratio of bid to ask volume)
+            'reverse_threshold': 0.67,       # Opposite threshold (1/1.5) for mean reversion
+            'position_size': 100,            # Standard position size in shares
+            'min_volume': 500,               # Minimum volume to consider for trading
+            'hold_time_ticks': 30,           # Maximum hold time in ticks
+            'profit_target_pct': 0.05,       # Target profit percentage
+            'stop_loss_pct': 0.03,           # Stop loss percentage
+            'order_timeout_ticks': 5,        # Cancel unfilled orders after this many ticks
             'max_positions': 10,             # Maximum number of concurrent positions
         }
         
-        # Strategy state
-        self.imbalance_counters = defaultdict(int)  # symbol -> consecutive ticks with imbalance
-        self.order_age = {}  # order_id -> ticks since placement
+        # Strategy state - using more efficient data structures
+        self.orders_by_age = defaultdict(set)  # age -> set(order_ids) for O(1) access by age
         self.active_strategies = {}  # symbol -> strategy state
+        self.moving_averages = {}  # symbol -> moving average data
         
         # Performance metrics
         self.metrics = {
@@ -96,6 +98,27 @@ class TradingEngine:
         self.running = True
         
         logger.info(f"Trading engine initialized with {initial_capital:.2f} capital")
+    
+    async def age_and_cancel_old_orders(self):
+        """
+        Efficiently age and cancel orders that are too old.
+        Uses the orders_by_age data structure for O(1) access to orders by age.
+        """
+        max_age = self.strategy_params['order_timeout_ticks']
+        
+        # Cancel orders that have reached max age
+        if max_age in self.orders_by_age:
+            for order_id in list(self.orders_by_age[max_age]):
+                if order_id in self.orders and self.orders[order_id]['status'] == 'active':
+                    logger.info(f"Cancelling old order {order_id} for {self.orders[order_id]['symbol']} after {max_age} ticks")
+                    await self.cancel_order(order_id)
+            self.orders_by_age[max_age].clear()
+        
+        # Shift orders to next age bucket - go in reverse to avoid double-counting
+        for age in range(max_age-1, -1, -1):
+            if age in self.orders_by_age:
+                self.orders_by_age[age+1].update(self.orders_by_age[age])
+                self.orders_by_age[age].clear()
     
     async def process_market_data(self):
         """
@@ -184,16 +207,167 @@ class TradingEngine:
             return
         
         # Execute trading strategy
-        await self.lob_imbalance_strategy(update)
+        await self.liquidity_reversion_strategy(update)
     
-    async def lob_imbalance_strategy(self, update):
+    async def liquidity_reversion_strategy(self, update):
         """
-        Implement a LOB imbalance strategy.
+        Implement a Liquidity Reversion HFT strategy.
         
         Strategy:
-        1. Monitor LOB imbalance (bid volume > ask volume)
-        2. If imbalance exceeds threshold for consecutive ticks, place a buy order
-        3. Sell after a target profit or stop loss
+        1. Track ratio of total buy volume to sell volume in the order book
+        2. Calculate liquidity imbalance score
+        3. When buy volume > sell volume by threshold → short position
+        4. When sell volume > buy volume by threshold → long position
+        5. Exit when imbalance normalizes or hold time expires
+        
+        Args:
+            update: Market data update dictionary
+        """
+        # Extract data from update
+        symbol = update.get('symbol')
+        timestamp = update.get('timestamp')
+        bid_price = update.get('bid_price')
+        ask_price = update.get('ask_price')
+        bid_volume = update.get('bid_volume', 0)
+        ask_volume = update.get('ask_volume', 0)
+        imbalance = update.get('imbalance', 0)
+        
+        # Skip if symbol is None or not enough volume
+        if not symbol or bid_volume + ask_volume < self.strategy_params['min_volume']:
+            return
+        
+        # Skip if we already have too many positions
+        if len([p for p in self.positions.values() if p['quantity'] != 0]) >= self.strategy_params['max_positions']:
+            return
+            
+        # Calculate liquidity ratio if not provided in the update
+        liquidity_ratio = 1.0
+        if bid_volume > 0 and ask_volume > 0:
+            liquidity_ratio = bid_volume / ask_volume
+        elif imbalance != 0:
+            # Convert imbalance back to ratio if available
+            # imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume)
+            bid_fraction = (imbalance + 1) / 2
+            ask_fraction = 1 - bid_fraction
+            if ask_fraction > 0:
+                liquidity_ratio = bid_fraction / ask_fraction
+        
+        # Get or initialize strategy state for this symbol
+        if symbol not in self.active_strategies:
+            self.active_strategies[symbol] = {
+                'position': 0,  # Current position size (+ve=long, -ve=short)
+                'entry_price': None,  # Price at which position was entered
+                'entry_time': None,   # Timestamp when position was entered
+                'hold_ticks': 0,      # Number of ticks position was held
+                'last_order_id': None, # ID of last order placed
+            }
+        
+        strategy_state = self.active_strategies[symbol]
+        
+        # Check if we have an active position for this symbol
+        current_position = strategy_state['position']
+        
+        if current_position == 0:
+            # No position, check for entry signals
+            
+            # Check liquidity imbalance
+            threshold = self.strategy_params['liquidity_threshold']
+            reverse_threshold = self.strategy_params['reverse_threshold']
+            
+            if liquidity_ratio >= threshold:
+                # More buy orders than sell orders - potential short opportunity
+                logger.info(f"Liquidity imbalance detected for {symbol}: ratio={liquidity_ratio:.2f} > {threshold} - Short signal")
+                
+                # Place short order
+                quantity = self.strategy_params['position_size']
+                order_id = await self.place_order(symbol, "sell", quantity, bid_price)
+                
+                if order_id:
+                    strategy_state['last_order_id'] = order_id
+                    strategy_state['position'] = -quantity
+                    strategy_state['entry_price'] = bid_price
+                    strategy_state['entry_time'] = timestamp
+                    strategy_state['hold_ticks'] = 0
+                    
+                    logger.info(f"Placed short order for {quantity} shares of {symbol} at {bid_price}")
+            
+            elif liquidity_ratio <= reverse_threshold:
+                # More sell orders than buy orders - potential long opportunity
+                logger.info(f"Liquidity imbalance detected for {symbol}: ratio={liquidity_ratio:.2f} < {reverse_threshold} - Long signal")
+                
+                # Place long order
+                quantity = self.strategy_params['position_size']
+                order_id = await self.place_order(symbol, "buy", quantity, ask_price)
+                
+                if order_id:
+                    strategy_state['last_order_id'] = order_id
+                    strategy_state['position'] = quantity
+                    strategy_state['entry_price'] = ask_price
+                    strategy_state['entry_time'] = timestamp
+                    strategy_state['hold_ticks'] = 0
+                    
+                    logger.info(f"Placed long order for {quantity} shares of {symbol} at {ask_price}")
+        
+        else:
+            # Have an existing position, check for exit signals
+            strategy_state['hold_ticks'] += 1
+            
+            entry_price = strategy_state['entry_price']
+            position_size = abs(strategy_state['position'])
+            is_long = strategy_state['position'] > 0
+            
+            # Calculate current P&L
+            current_price = ask_price if is_long else bid_price
+            price_change_pct = (current_price - entry_price) / entry_price if entry_price else 0
+            if not is_long:
+                price_change_pct = -price_change_pct  # Invert for short positions
+            
+            # Define exit conditions
+            profit_target_hit = price_change_pct >= self.strategy_params['profit_target_pct']
+            stop_loss_hit = price_change_pct <= -self.strategy_params['stop_loss_pct']
+            max_hold_time_reached = strategy_state['hold_ticks'] >= self.strategy_params['hold_time_ticks']
+            
+            # Imbalance normalized (ratio between reverse_threshold and threshold)
+            imbalance_normalized = self.strategy_params['reverse_threshold'] < liquidity_ratio < self.strategy_params['liquidity_threshold']
+            
+            if profit_target_hit or stop_loss_hit or max_hold_time_reached or imbalance_normalized:
+                # Exit condition met, close position
+                exit_reason = (
+                    "profit target" if profit_target_hit else
+                    "stop loss" if stop_loss_hit else
+                    "max hold time" if max_hold_time_reached else
+                    "imbalance normalized"
+                )
+                
+                logger.info(f"Exiting {symbol} position ({exit_reason}): P&L={price_change_pct:.4%}")
+                
+                # Place exit order
+                exit_side = "sell" if is_long else "buy"
+                exit_price = bid_price if is_long else ask_price
+                
+                order_id = await self.place_order(symbol, exit_side, position_size, exit_price)
+                
+                if order_id:
+                    # Reset position state
+                    strategy_state['position'] = 0
+                    strategy_state['entry_price'] = None
+                    strategy_state['entry_time'] = None
+                    strategy_state['hold_ticks'] = 0
+                    strategy_state['last_order_id'] = order_id
+                    
+                    logger.info(f"Placed {exit_side} order to close position for {position_size} shares of {symbol} at {exit_price}")
+        
+        # Efficiently age and cancel old orders using orders_by_age structure
+        self.age_and_cancel_old_orders()
+    
+    async def mean_reversion_strategy(self, update):
+        """
+        Implement a Mean Reversion HFT strategy.
+        
+        Strategy:
+        1. Calculate a short-term moving average and standard deviation of mid prices
+        2. Buy when price drops significantly below the moving average (entry_threshold std devs)
+        3. Sell when price returns to the moving average (profit) or drops further (stop loss)
         4. Cancel unfilled orders after a timeout
         
         Args:
@@ -201,63 +375,109 @@ class TradingEngine:
         """
         symbol = update['symbol']
         timestamp = update['timestamp']
+        mid_price = update['mid_price']
         bid_price = update['bid_price']
         ask_price = update['ask_price']
         bid_volume = update['bid_volume']
         ask_volume = update['ask_volume']
         
-        logger.debug(f"LOB Strategy for {symbol} at {timestamp}: bid={bid_price}@{bid_volume}, ask={ask_price}@{ask_volume}")
-        
         # Check if we already have a position in this symbol
         if symbol in self.positions and self.positions[symbol]['quantity'] != 0:
             # We have a position, check if we should exit
             position = self.positions[symbol]
-            current_price = update['mid_price']
             entry_price = position['avg_price']
             
             if position['quantity'] > 0:  # Long position
-                pnl_pct = (current_price - entry_price) / entry_price * 100
+                pnl_pct = (mid_price - entry_price) / entry_price * 100
                 
                 # Check profit target or stop loss
                 if pnl_pct >= self.strategy_params['profit_target_pct']:
                     logger.info(f"Profit target reached for {symbol}: {pnl_pct:.2f}%")
-                    await self.place_order(symbol, "sell", position['quantity'], current_price)
+                    await self.place_order(symbol, "sell", position['quantity'], mid_price)
                 elif pnl_pct <= -self.strategy_params['stop_loss_pct']:
                     logger.info(f"Stop loss triggered for {symbol}: {pnl_pct:.2f}%")
-                    await self.place_order(symbol, "sell", position['quantity'], current_price)
+                    await self.place_order(symbol, "sell", position['quantity'], mid_price)
+            elif position['quantity'] < 0:  # Short position
+                pnl_pct = (entry_price - mid_price) / entry_price * 100
+                
+                # Check profit target or stop loss
+                if pnl_pct >= self.strategy_params['profit_target_pct']:
+                    logger.info(f"Profit target reached for {symbol}: {pnl_pct:.2f}%")
+                    await self.place_order(symbol, "buy", -position['quantity'], mid_price)
+                elif pnl_pct <= -self.strategy_params['stop_loss_pct']:
+                    logger.info(f"Stop loss triggered for {symbol}: {pnl_pct:.2f}%")
+                    await self.place_order(symbol, "buy", -position['quantity'], mid_price)
             
-            # Reset imbalance counter
-            self.imbalance_counters[symbol] = 0
             return
         
         # Check if we have too many positions
         if len([p for p in self.positions.values() if p['quantity'] != 0]) >= self.strategy_params['max_positions']:
             return
         
-        # Check LOB imbalance
-        if bid_volume > ask_volume * self.strategy_params['lob_imbalance_threshold']:
-            # Increment counter
-            self.imbalance_counters[symbol] += 1
-            
-            # Check if we have enough consecutive ticks with imbalance
-            if self.imbalance_counters[symbol] >= self.strategy_params['min_consecutive_ticks']:
-                # Calculate imbalance ratio for logging
-                imbalance_ratio = bid_volume / ask_volume if ask_volume > 0 else float('inf')
-                logger.info(f"LOB imbalance detected for {symbol}: {imbalance_ratio:.2f}, placing buy order")
-                
-                # Calculate position size
-                position_value = self.cash * self.strategy_params['position_size_pct']
-                quantity = int(position_value / update['ask_price'])
-                
-                if quantity > 0:
-                    # Place a buy order
-                    await self.place_order(symbol, "buy", quantity, update['ask_price'])
-                
-                # Reset counter
-                self.imbalance_counters[symbol] = 0
+        # Check if we have enough price history
+        price_history = [p['mid_price'] for p in self.price_history[symbol]]
+        if len(price_history) < self.strategy_params['min_price_history']:
+            return
+        
+        # Calculate moving average and standard deviation
+        window_size = min(self.strategy_params['window_size'], len(price_history))
+        recent_prices = price_history[-window_size:]
+        moving_avg = sum(recent_prices) / window_size
+        
+        # Calculate standard deviation
+        variance = sum((price - moving_avg) ** 2 for price in recent_prices) / window_size
+        std_dev = variance ** 0.5  # Square root of variance
+        
+        # Calculate z-score (how many standard deviations away from the mean)
+        if std_dev > 0:
+            z_score = (mid_price - moving_avg) / std_dev
         else:
-            # Reset counter
-            self.imbalance_counters[symbol] = 0
+            return  # Avoid division by zero
+        
+        # Mean reversion logic
+        entry_threshold = self.strategy_params['entry_threshold']
+        
+        # If price is significantly below the moving average, buy (expect reversion upward)
+        if z_score < -entry_threshold:
+            logger.info(f"Mean reversion buy signal for {symbol}: price={mid_price:.2f}, avg={moving_avg:.2f}, z={z_score:.2f}")
+            
+            # Calculate position size based on available liquidity
+            position_value = self.cash * self.strategy_params['position_size_pct']
+            max_buy_quantity = min(
+                int(position_value / bid_price),  # Maximum based on capital
+                bid_volume,  # Maximum based on available liquidity
+                1000  # Maximum order size limit
+            )
+            quantity = max(0, min(quantity, max_buy_quantity))
+            
+            if quantity > 0 and ask_volume > 0:
+                # Check if we can execute at the current ask price
+                if quantity <= ask_volume:
+                    # Place a buy order at the ask price
+                    await self.place_order(symbol, "buy", quantity, ask_price)
+                else:
+                    logger.warning(f"Not enough liquidity to execute buy order for {symbol}: requested {quantity} shares, only {ask_volume} available")
+        
+        # If price is significantly above the moving average, sell (expect reversion downward)
+        elif z_score > entry_threshold:
+            logger.info(f"Mean reversion sell signal for {symbol}: price={mid_price:.2f}, avg={moving_avg:.2f}, z={z_score:.2f}")
+            
+            # Calculate position size based on available liquidity
+            position_value = self.cash * self.strategy_params['position_size_pct']
+            max_sell_quantity = min(
+                int(position_value / ask_price),  # Maximum based on capital
+                ask_volume,  # Maximum based on available liquidity
+                1000  # Maximum order size limit
+            )
+            quantity = max(0, min(quantity, max_sell_quantity))
+            
+            if quantity > 0 and bid_volume > 0:
+                # Check if we can execute at the current bid price
+                if quantity <= bid_volume:
+                    # Place a sell order at the bid price
+                    await self.place_order(symbol, "sell", quantity, bid_price)
+                else:
+                    logger.warning(f"Not enough liquidity to execute sell order for {symbol}: requested {quantity} shares, only {bid_volume} available")
     
     async def place_order(self, symbol, side, quantity, price):
         """
@@ -272,33 +492,36 @@ class TradingEngine:
         Returns:
             Order ID
         """
-        # Generate order ID
-        order_id = f"order_{self.next_order_id}"
+        order_id = self.next_order_id
         self.next_order_id += 1
         
         # Create order
         order = {
-            'order_id': order_id,
-            'symbol': symbol,
-            'side': side,
-            'quantity': quantity,
-            'price': price,
-            'timestamp': int(time.time() * 1e9),
-            'status': 'new'
+            "id": order_id,
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "price": price,
+            "status": "active",
+            "filled": 0,
+            "timestamp": time.time(),
+            "executions": []
         }
         
         # Store order
         self.orders[order_id] = order
-        self.order_age[order_id] = 0
         
-        logger.info(f"Placed {side} order for {quantity} {symbol} at {price}: {order_id}")
+        # Add to orders_by_age for efficient aging and timeout
+        self.orders_by_age[0].add(order_id)
         
-        # If we have an order queue, send the order
-        if self.order_queue is not None:
-            await self.order_queue.put(order)
+        # Send order if order queue is available
+        if self.order_queue:
+            await self.order_queue.put({
+                "type": "new_order",
+                "order": order
+            })
         
-        # Execute order immediately (in a real system, this would be sent to the exchange)
-        await self.execute_order(order_id)
+        logger.debug(f"Placed order {order_id}: {side} {quantity} {symbol} @ {price}")
         
         return order_id
     
