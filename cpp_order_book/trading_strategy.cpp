@@ -40,13 +40,6 @@ LiquidityReversionStrategy::LiquidityReversionStrategy(
     
     // Write header to trade output file
     trades_file_ << "timestamp,symbol,side,quantity,price,pnl" << std::endl;
-    
-    std::cout << "Initialized Liquidity Reversion Strategy with parameters:" << std::endl;
-    std::cout << "  Liquidity Threshold: " << liquidity_threshold_ << std::endl;
-    std::cout << "  Reverse Threshold: " << reverse_threshold_ << std::endl;
-    std::cout << "  Position Size: " << position_size_ << " shares" << std::endl;
-    std::cout << "  Hold Time: " << hold_time_ticks_ << " ticks" << std::endl;
-    std::cout << "  Initial Capital: $" << std::fixed << std::setprecision(2) << initial_capital_ << std::endl;
 }
 
 LiquidityReversionStrategy::~LiquidityReversionStrategy() {
@@ -123,25 +116,13 @@ void LiquidityReversionStrategy::run() {
     // Implementation will depend on how market updates are received
     // This method would be called if all market data is available upfront
     // Otherwise, process_market_update is called for each update
-    std::cout << "Running strategy on all market updates..." << std::endl;
 }
 
 void LiquidityReversionStrategy::print_performance() {
-    double total_pnl = calculate_total_pnl();
-    int win_rate = calculate_win_rate();
-    double sharpe = calculate_sharpe_ratio();
-    
-    std::cout << "-------------------------" << std::endl;
-    std::cout << "Performance Summary" << std::endl;
-    std::cout << "-------------------------" << std::endl;
-    std::cout << "Initial Capital: $" << std::fixed << std::setprecision(2) << initial_capital_ << std::endl;
-    std::cout << "Final Capital: $" << current_capital_ << std::endl;
-    std::cout << "Total P&L: $" << total_pnl << std::endl;
-    std::cout << "Return: " << (current_capital_ - initial_capital_) / initial_capital_ * 100.0 << "%" << std::endl;
-    std::cout << "Number of Trades: " << trades_.size() << std::endl;
-    std::cout << "Win Rate: " << win_rate << "%" << std::endl;
-    std::cout << "Sharpe Ratio: " << sharpe << std::endl;
-    std::cout << "-------------------------" << std::endl;
+    // We still collect the data for statistics, but don't print it
+    calculate_total_pnl();
+    calculate_win_rate();
+    calculate_sharpe_ratio();
 }
 
 void LiquidityReversionStrategy::execute_buy(
@@ -172,9 +153,6 @@ void LiquidityReversionStrategy::execute_buy(
     
     // Update capital
     current_capital_ -= price * quantity;
-    
-    std::cout << "BUY " << quantity << " " << symbol << " @ $" << price 
-              << " (imbalance > " << liquidity_threshold_ << ")" << std::endl;
 }
 
 void LiquidityReversionStrategy::execute_sell(
@@ -205,9 +183,6 @@ void LiquidityReversionStrategy::execute_sell(
     
     // Update capital
     current_capital_ += price * quantity;
-    
-    std::cout << "SELL " << quantity << " " << symbol << " @ $" << price 
-              << " (imbalance < " << reverse_threshold_ << ")" << std::endl;
 }
 
 void LiquidityReversionStrategy::update_positions(uint64_t current_time) {
@@ -281,9 +256,6 @@ void LiquidityReversionStrategy::close_position(
     // Update capital
     current_capital_ += (position.quantity > 0) ? price * quantity : -price * quantity;
     current_capital_ += pnl;
-    
-    std::cout << side << " " << quantity << " " << symbol << " @ $" << price 
-              << " (closing position, P&L: $" << std::fixed << std::setprecision(2) << pnl << ")" << std::endl;
     
     // Remove position
     positions_.erase(symbol);
