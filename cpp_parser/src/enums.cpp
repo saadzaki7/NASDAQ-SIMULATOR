@@ -28,6 +28,7 @@ IssueClassification parse_issue_classification(char value) {
 }
 
 IssueSubType parse_issue_subtype(const char* value) {
+    // Create a 2-character string from the value
     std::string val(value, 2);
     
     if (val == "A ") return IssueSubType::PreferredTrustSecurities;
@@ -331,6 +332,7 @@ std::string to_string(InterestFlag flag) {
 std::string array_to_string(const ArrayString4& arr, bool preserve_spaces) {
     std::string result(arr.begin(), arr.end());
     
+    // If preserve_spaces is false, trim trailing spaces
     if (!preserve_spaces) {
         result.erase(std::find_if(result.rbegin(), result.rend(), [](char c) {
             return c != ' ';
@@ -343,6 +345,7 @@ std::string array_to_string(const ArrayString4& arr, bool preserve_spaces) {
 std::string array_to_string(const ArrayString8& arr, bool preserve_spaces) {
     std::string result(arr.begin(), arr.end());
     
+    // If preserve_spaces is false, trim trailing spaces
     if (!preserve_spaces) {
         result.erase(std::find_if(result.rbegin(), result.rend(), [](char c) {
             return c != ' ';
@@ -365,4 +368,4 @@ std::optional<bool> maybe_char_to_bool(char c) {
     throw std::runtime_error("Invalid maybe-boolean character: " + std::string(1, c));
 }
 
-}
+} // namespace itch

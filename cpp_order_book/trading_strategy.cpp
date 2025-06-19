@@ -40,13 +40,23 @@ LiquidityReversionStrategy::LiquidityReversionStrategy(
     
     // Write header to trade output file
     trades_file_ << "timestamp,symbol,side,quantity,price,pnl" << std::endl;
+    
+    // Record start time
+    start_time_ = std::chrono::system_clock::now();
 }
 
 LiquidityReversionStrategy::~LiquidityReversionStrategy() {
+    // Flush any remaining trades
+    flush_trades();
+    
     // Close trades file
     if (trades_file_.is_open()) {
         trades_file_.close();
     }
+    
+    // Calculate run time
+    auto end_time = std::chrono::system_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time_);
     
     // Write performance summary
     std::ofstream summary_file(output_dir_ + "/performance_summary.json");
@@ -59,6 +69,29 @@ LiquidityReversionStrategy::~LiquidityReversionStrategy() {
         summary["num_trades"] = trades_.size();
         summary["win_rate"] = calculate_win_rate();
         summary["sharpe_ratio"] = calculate_sharpe_ratio();
+        
+        // Add timing information
+        summary["run_start_time"] = std::chrono::system_clock::to_time_t(start_time_);
+        summary["run_end_time"] = std::chrono::system_clock::to_time_t(end_time);
+        summary["run_duration_seconds"] = duration.count();
+        
+        // Format as human-readable duration
+        auto hours = std::chrono::duration_cast<std::chrono::hours>(duration);
+        duration -= hours;
+        auto minutes = std::chrono::duration_cast<std::chrono::minutes>(duration);
+        duration -= minutes;
+        auto seconds = duration;
+        
+        std::stringstream duration_ss;
+        if (hours.count() > 0) {
+            duration_ss << hours.count() << "h ";
+        }
+        if (hours.count() > 0 || minutes.count() > 0) {
+            duration_ss << minutes.count() << "m ";
+        }
+        duration_ss << seconds.count() << "s";
+        
+        summary["run_duration"] = duration_ss.str();
         
         summary_file << summary.dump(4) << std::endl;
         summary_file.close();
@@ -149,7 +182,8 @@ void LiquidityReversionStrategy::execute_buy(
     trade.pnl = 0.0;
     
     trades_.push_back(trade);
-    write_trade(trade);
+    // Use batch writing for better performance
+    write_trade(trade, false);
     
     // Update capital
     current_capital_ -= price * quantity;
@@ -179,7 +213,8 @@ void LiquidityReversionStrategy::execute_sell(
     trade.pnl = 0.0;
     
     trades_.push_back(trade);
-    write_trade(trade);
+    // Use batch writing for better performance
+    write_trade(trade, false);
     
     // Update capital
     current_capital_ += price * quantity;
@@ -251,7 +286,8 @@ void LiquidityReversionStrategy::close_position(
     trade.pnl = pnl;
     
     trades_.push_back(trade);
-    write_trade(trade);
+    // Force flush when closing positions to ensure all trades are written
+    write_trade(trade, true);
     
     // Update capital
     current_capital_ += (position.quantity > 0) ? price * quantity : -price * quantity;
@@ -262,15 +298,44 @@ void LiquidityReversionStrategy::close_position(
     position_hold_time_.erase(symbol);
 }
 
-void LiquidityReversionStrategy::write_trade(const Trade& trade) {
-    if (trades_file_.is_open()) {
-        trades_file_ << trade.timestamp << ","
-                    << trade.symbol << ","
-                    << trade.side << ","
-                    << trade.quantity << ","
-                    << std::fixed << std::setprecision(4) << trade.price << ","
-                    << std::fixed << std::setprecision(2) << trade.pnl << std::endl;
+void LiquidityReversionStrategy::write_trade(const Trade& trade, bool force_flush) {
+    if (!trades_file_.is_open()) {
+        return;
     }
+    
+    // Format the trade as a string
+    std::ostringstream oss;
+    oss << trade.timestamp << ","
+        << trade.symbol << ","
+        << trade.side << ","
+        << trade.quantity << ","
+        << std::fixed << std::setprecision(4) << trade.price << ","
+        << std::fixed << std::setprecision(2) << trade.pnl;
+    
+    // Add to buffer
+    trade_buffer_.push_back(oss.str());
+    
+    // Write to disk if buffer is full or forced
+    if (trade_buffer_.size() >= BATCH_SIZE || force_flush) {
+        flush_trades();
+    }
+}
+
+void LiquidityReversionStrategy::flush_trades() {
+    if (trade_buffer_.empty() || !trades_file_.is_open()) {
+        return;
+    }
+    
+    // Write all buffered trades in one go
+    for (const auto& trade_str : trade_buffer_) {
+        trades_file_ << trade_str << '\n';
+    }
+    
+    // Clear the buffer
+    trade_buffer_.clear();
+    
+    // Ensure data is written to disk
+    trades_file_.flush();
 }
 
 double LiquidityReversionStrategy::calculate_sharpe_ratio() {

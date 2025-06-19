@@ -7,6 +7,7 @@
 #include <fstream>
 #include "order_book.h"
 #include <nlohmann/json.hpp>
+#include <mutex>
 
 using json = nlohmann::json;
 
@@ -71,12 +72,20 @@ private:
     std::unordered_map<std::string, Position> positions_;
     std::unordered_map<std::string, int> position_hold_time_;
     std::vector<Trade> trades_;
+    std::unordered_map<std::string, std::deque<Position>> position_history_;
+    std::mutex trades_mutex_;
+    std::ofstream trades_file_;
+    std::vector<Trade> pending_trades_;
+    std::mutex pending_trades_mutex_;
+    
+    // Timing
+    std::chrono::time_point<std::chrono::system_clock> start_time_;
     
     // Market data cache
     std::unordered_map<std::string, std::deque<double>> price_history_;
+    std::vector<std::string> trade_buffer_;  // Buffer for batching trade writes
     
-    // Output file
-    std::ofstream trades_file_;
+    static constexpr size_t BATCH_SIZE = 1000;  // Write to disk every 1000 trades
     
     // Execute buy/sell orders
     void execute_buy(const std::string& symbol, double price, int quantity, uint64_t timestamp);
@@ -86,8 +95,11 @@ private:
     void update_positions(uint64_t current_time);
     void close_position(const std::string& symbol, double price, uint64_t timestamp);
     
-    // Write trade to file
-    void write_trade(const Trade& trade);
+    // Write trade to buffer and optionally flush to disk
+    void write_trade(const Trade& trade, bool force_flush = false);
+    
+    // Flush buffered trades to disk
+    void flush_trades();
     
     // Calculate metrics
     double calculate_sharpe_ratio();

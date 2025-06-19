@@ -112,6 +112,7 @@ std::vector<json> filter_messages_by_stocks(const std::vector<json>& messages,
     }
     
     std::vector<json> filtered;
+    std::set<std::string> stock_set(stocks.begin(), stocks.end());
     
     for (const auto& message : messages) {
         try {
@@ -121,7 +122,11 @@ std::vector<json> filter_messages_by_stocks(const std::vector<json>& messages,
                 // Check for AddOrder and filter by stock
                 if (body.contains("AddOrder") && body["AddOrder"].contains("stock")) {
                     std::string stock = body["AddOrder"]["stock"];
-                    if (std::find(stocks.begin(), stocks.end(), stock) != stocks.end()) {
+                    // Trim whitespace from stock symbol
+                    stock.erase(0, stock.find_first_not_of(" \t\n\r\f\v"));
+                    stock.erase(stock.find_last_not_of(" \t\n\r\f\v") + 1);
+                    
+                    if (stock_set.find(stock) != stock_set.end()) {
                         filtered.push_back(message);
                     }
                 }
