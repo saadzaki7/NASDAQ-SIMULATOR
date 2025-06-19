@@ -7,9 +7,11 @@
 
 namespace itch {
 
+// Fixed-size string types
 using ArrayString4 = std::array<char, 4>;
 using ArrayString8 = std::array<char, 8>;
 
+// Event codes
 enum class EventCode {
     StartOfMessages,
     StartOfSystemHours,
@@ -19,6 +21,7 @@ enum class EventCode {
     EndOfMessages
 };
 
+// Market categories
 enum class MarketCategory {
     NasdaqGlobalSelect,
     NasdaqGlobalMarket,
@@ -31,7 +34,7 @@ enum class MarketCategory {
     Unavailable
 };
 
-
+// Financial status indicators
 enum class FinancialStatus {
     Normal,
     Deficient,
@@ -46,7 +49,7 @@ enum class FinancialStatus {
     Unavailable
 };
 
-
+// Issue classifications
 enum class IssueClassification {
     AmericanDepositaryShare,
     Bond,
@@ -66,6 +69,7 @@ enum class IssueClassification {
     Warrant
 };
 
+// Issue subtypes
 enum class IssueSubType {
     PreferredTrustSecurities,
     AlphaIndexETNs,
@@ -127,12 +131,14 @@ enum class IssueSubType {
     NotApplicable
 };
 
+// LULD reference price tier
 enum class LuldRefPriceTier {
     Tier1,
     Tier2,
     Na
 };
 
+// Market maker modes
 enum class MarketMakerMode {
     Normal,
     Passive,
@@ -141,6 +147,7 @@ enum class MarketMakerMode {
     Penalty
 };
 
+// Market participant states
 enum class MarketParticipantState {
     Active,
     Excused,
@@ -149,12 +156,14 @@ enum class MarketParticipantState {
     Deleted
 };
 
+// Reg SHO actions
 enum class RegShoAction {
     None,
     Intraday,
     Extant
 };
 
+// Trading states
 enum class TradingState {
     Halted,
     Paused,
@@ -162,13 +171,13 @@ enum class TradingState {
     Trading
 };
 
-
+// Side (buy/sell)
 enum class Side {
     Buy,
     Sell
 };
 
-
+// Imbalance directions
 enum class ImbalanceDirection {
     Buy,
     Sell,
@@ -176,7 +185,7 @@ enum class ImbalanceDirection {
     InsufficientOrders
 };
 
-
+// Cross types
 enum class CrossType {
     Opening,
     Closing,
@@ -185,19 +194,20 @@ enum class CrossType {
     ExtendedTradingClose
 };
 
-
+// IPO release qualifiers
 enum class IpoReleaseQualifier {
     Anticipated,
     Cancelled
 };
 
-
+// MWCB level breached
 enum class LevelBreached {
     L1,
     L2,
     L3
 };
 
+// Interest flags for retail price improvements
 enum class InterestFlag {
     RPIAvailableBuySide,
     RPIAvailableSellSide,
@@ -205,9 +215,11 @@ enum class InterestFlag {
     RPINoneAvailable
 };
 
+// Helper functions for parsing enums from bytes
 IssueClassification parse_issue_classification(char value);
 IssueSubType parse_issue_subtype(const char* value);
 
+// String conversion functions
 std::string to_string(EventCode code);
 std::string to_string(MarketCategory category);
 std::string to_string(FinancialStatus status);
@@ -225,9 +237,10 @@ std::string to_string(IpoReleaseQualifier qualifier);
 std::string to_string(LevelBreached level);
 std::string to_string(InterestFlag flag);
 
+// Utility functions
 std::string array_to_string(const ArrayString4& arr, bool preserve_spaces = false);
 std::string array_to_string(const ArrayString8& arr, bool preserve_spaces = false);
 bool char_to_bool(char c);
 std::optional<bool> maybe_char_to_bool(char c);
 
-}
+} // namespace itch

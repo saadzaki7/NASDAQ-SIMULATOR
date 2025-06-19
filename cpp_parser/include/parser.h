@@ -12,13 +12,14 @@ namespace itch {
 
 class Parser {
 private:
-    static constexpr size_t BUFFER_SIZE = 8 * 1024; 
+    static constexpr size_t BUFFER_SIZE = 8 * 1024; // 8KB buffer
     std::vector<uint8_t> buffer;
     size_t current_pos = 0;
     size_t bytes_read = 0;
     std::unique_ptr<std::istream> stream;
     bool is_end_of_stream = false;
     
+    // Helper methods for parsing binary data
     uint8_t read_u8();
     uint16_t read_u16();
     uint32_t read_u32();
@@ -32,6 +33,7 @@ private:
     std::optional<bool> parse_maybe_char_to_bool();
     std::optional<bool> parse_etp_flag();
     
+    // Message type parsers
     StockDirectory parse_stock_directory();
     SystemEvent parse_system_event();
     TradingAction parse_trading_action();
@@ -56,15 +58,20 @@ private:
 public:
     explicit Parser(std::unique_ptr<std::istream> stream);
     
+    // Parse a message from the stream
     std::optional<Message> parse_message();
     
+    // Reset the parser's state
     void reset();
     
+    // Check if we've reached the end of the stream
     bool eof() const;
     
+    // Static constructor for file path
     static std::unique_ptr<Parser> from_file(const std::string& path);
     
+    // Static constructor for gzipped file
     static std::unique_ptr<Parser> from_gzip(const std::string& path);
 };
 
-}
+} // namespace itch

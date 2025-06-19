@@ -135,11 +135,3 @@ def order_book_imbalance_strategy(order_book, stock, threshold=2.0, holding_peri
     else:
         return "hold"
 ```
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.

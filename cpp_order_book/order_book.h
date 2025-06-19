@@ -27,17 +27,20 @@ public:
     // Process a single message and update the order book
     void process_message(const std::string& message_json);
     
-    // Get the current state of the order book for a stock
-    std::string get_order_book_snapshot(const std::string& stock);
+    // Get a human-readable snapshot of the order book for a stock
+    std::string get_order_book_snapshot(std::string_view stock) const;
+    
+    // Get a JSON representation of the order book for a stock
+    std::string get_order_book_json(std::string_view stock) const;
     
     // Get the best bid and ask for a stock
-    std::pair<double, double> get_best_prices(const std::string& stock);
+    std::pair<double, double> get_best_prices(std::string_view stock) const;
     
     // Get the total volume at the bid and ask for a stock
-    std::pair<uint32_t, uint32_t> get_volumes(const std::string& stock);
+    std::pair<uint32_t, uint32_t> get_volumes(std::string_view stock) const;
     
-    // Calculate the imbalance for a stock
-    double get_imbalance(const std::string& stock);
+    // Calculate the imbalance for a stock (ratio of bid volume to total volume)
+    double get_imbalance(std::string_view stock) const;
 
 private:
     // Use efficient data structures for the order book
@@ -62,7 +65,14 @@ private:
                               double price, uint32_t shares);
     
     // Update best prices after order book changes
-    void update_best_prices(const std::string& stock);
+    void update_best_prices(std::string_view stock);
+    
+    // Update volumes cache for a stock
+    void update_volumes_cache(std::string_view stock) const;
+    
+    // Cache for volume data to avoid recalculating
+    mutable std::unordered_map<std::string, std::pair<uint32_t, uint32_t>> volumes_cache_;
+    mutable bool volumes_dirty_ = true;
 };
 
 }  // namespace hft

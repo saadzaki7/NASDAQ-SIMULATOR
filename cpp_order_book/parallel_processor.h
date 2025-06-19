@@ -37,8 +37,21 @@ struct MarketUpdate {
 // Thread-safe queue for market updates
 class MarketUpdateQueue {
 public:
+    // Maximum queue size - set to a reasonable value that won't exhaust memory
+    // but still allows for high throughput
+    static constexpr size_t MAX_QUEUE_SIZE = 250000;
+    
     void push(const MarketUpdate& update) {
         std::unique_lock<std::mutex> lock(mutex_);
+        // Block if the queue is already too large
+        // This provides backpressure to slow down producers when needed
+        while (queue_.size() >= MAX_QUEUE_SIZE && !is_done_) {
+            // Wait a short time and check again - prevents tight loop
+            condition_push_.wait_for(lock, std::chrono::milliseconds(1));
+        }
+        
+        if (is_done_) return; // Don't add more items if shutting down
+        
         queue_.push(update);
         lock.unlock();
         condition_.notify_one();
@@ -56,6 +69,15 @@ public:
         
         update = queue_.front();
         queue_.pop();
+        
+        // Notify producers when queue has space
+        if (queue_.size() < MAX_QUEUE_SIZE/2) {
+            lock.unlock();
+            condition_push_.notify_all(); // Wake up producers when queue is half empty
+        } else {
+            lock.unlock();
+        }
+        
         return true;
     }
     
@@ -75,6 +97,7 @@ private:
     std::queue<MarketUpdate> queue_;
     std::mutex mutex_;
     std::condition_variable condition_;
+    std::condition_variable condition_push_; // Used to signal producers when queue has space
     bool is_done_ = false;
 };
 

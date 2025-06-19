@@ -11,6 +11,11 @@ The NASDAQ Simulator consists of the following components:
 3. **Market Dashboard**: Visualizes market data and trading performance.
 4. **Asyncio Communication Layer**: Enables low-latency intra-process communication between components.
 
+## Demo
+
+
+[NASDAQ Simulator Demo](https://www.youtube.com/watch?v=hup7Ghcfe5s)
+
 ## Directory Structure
 
 ```
@@ -108,7 +113,6 @@ The Trading Engine implements a realistic HFT strategy based on order book imbal
 1. Monitor LOB imbalance (bid volume > ask volume by a factor of 2)
 2. If imbalance persists for 5 consecutive ticks, place a buy order
 3. Sell after a 0.1% gain or 0.05% loss
-4. Cancel unfilled orders after 10 ticks
 
 ## Performance Benefits
 
@@ -120,13 +124,9 @@ The asyncio-based intra-process communication provides several advantages over n
 4. **Simplified development**: No need for protocol definitions or server setup
 5. **Realistic HFT simulation**: Better represents the microsecond-level timing critical for HFT strategies
 
-## Future Enhancements
+## Future Improvements
 
 1. Add more sophisticated HFT strategies (e.g., statistical arbitrage, market making)
 2. Implement real-time visualization of trading performance
 3. Add support for multi-asset strategies and portfolio optimization
 4. Enhance the order book simulator with more realistic market microstructure features
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.

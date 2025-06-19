@@ -6,12 +6,14 @@
 
 namespace itch {
 
-
+// Forward declarations
 class JsonSerializer {
 public:
+    // Convert a message to a JSON object
     static nlohmann::json to_json(const Message& message);
 
 private:
+    // Helpers for each message type
     static nlohmann::json add_order_to_json(const AddOrder& order);
     static nlohmann::json level_breached_to_json(const LevelBreached& breach);
     static nlohmann::json broken_trade_to_json(const BrokenTrade& trade);
@@ -33,6 +35,7 @@ private:
     static nlohmann::json trading_action_to_json(const TradingAction& action);
     static nlohmann::json retail_price_improvement_indicator_to_json(const RetailPriceImprovementIndicator& indicator);
     
+    // Helpers for enum types
     static std::string event_code_to_string(EventCode code);
     static std::string market_category_to_string(MarketCategory category);
     static std::string financial_status_to_string(FinancialStatus status);
@@ -51,4 +54,4 @@ private:
     static std::string interest_flag_to_string(InterestFlag flag);
 };
 
-} 
+} // namespace itch

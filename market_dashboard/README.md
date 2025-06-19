@@ -100,7 +100,3 @@ You can customize the dashboard by modifying:
 - `assets/style.css`: Change the visual appearance
 - `app.py`: Add new visualizations or features
 - Update the refresh interval in the app.py file (currently set to 10 seconds)
-
-## License
-
-MIT

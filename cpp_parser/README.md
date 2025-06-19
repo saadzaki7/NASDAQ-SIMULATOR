@@ -139,6 +139,3 @@ The parser has been thoroughly tested with real NASDAQ ITCH data on a first-gene
    - Order Executed: 0.4%
    - Other types: 0.3%
 
-## License
-
-This code is provided as-is with no warranties.

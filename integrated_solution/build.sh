@@ -59,8 +59,15 @@ target_link_libraries(integrated_processor PRIVATE
 install(TARGETS integrated_processor DESTINATION bin)
 EOL
 
-# Configure with CMake
-cmake .
+# Detect architecture (default: native, override with BUILD_ARCH=x86_64)
+if [ "$BUILD_ARCH" == "x86_64" ]; then
+    export CFLAGS="-arch x86_64"
+    export CXXFLAGS="-arch x86_64"
+    export LDFLAGS="-arch x86_64"
+    cmake -DCMAKE_OSX_ARCHITECTURES=x86_64 .
+else
+    cmake .
+fi
 
 # Build
 make -j4
