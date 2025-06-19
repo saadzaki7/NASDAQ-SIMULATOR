@@ -69,6 +69,11 @@ public:
         }
     }
     
+    // Get the number of threads in the pool
+    size_t get_thread_count() const {
+        return workers.size();
+    }
+    
     // Add task to the thread pool
     template<class F, class... Args>
     auto enqueue(F&& f, Args&&... args) {

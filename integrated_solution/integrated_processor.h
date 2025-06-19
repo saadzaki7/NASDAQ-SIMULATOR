@@ -180,15 +180,13 @@ public:
                 );
                 updates_processed++;
                 
-                // Print progress every 10,000 updates for proof of concept
-                if (updates_processed % 10000 == 0) {
+                // Print progress every 100,000 updates
+                if (updates_processed % 100000 == 0) {
                     std::cout << "Strategy processed " << updates_processed 
                               << " market updates" << std::endl;
                     
-                    // Optionally print strategy performance
-                    if (updates_processed % 50000 == 0) {
-                        strategy.print_performance();
-                    }
+                    // Print strategy performance every 100,000 updates
+                    strategy.print_performance();
                 }
             }
             strategy_done = true;
@@ -214,20 +212,20 @@ public:
             batch.push_back(message);
             count++;
             
-            // Report progress periodically
-            if (count % 10000 == 0 || count == 1) {
+            // Report progress every 100,000 messages or every 5 seconds
+            if (count % 100000 == 0 || count == 1) {
                 auto current_time = std::chrono::high_resolution_clock::now();
                 auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                     current_time - start_time).count();
                 
-                if (elapsed_ms - last_report_time > 1000 || count == 1) {
+                // Only print if it's been at least 5 seconds since last print or it's the first message
+                if (elapsed_ms - last_report_time > 5000 || count == 1) {
                     last_report_time = elapsed_ms;
-                    double msgs_per_sec = count * 1000.0 / elapsed_ms;
+                    double msgs_per_sec = count * 1000.0 / (elapsed_ms > 0 ? elapsed_ms : 1);
                     
-                    std::cout << "Processor: Processed " << count << " messages"
-                              << " (" << std::fixed << std::setprecision(0) << msgs_per_sec << " msgs/sec)" << std::endl;
-                    std::cout << "Queue size: " << market_updates.size()
-                              << ", Strategy processed: " << updates_processed.load() << std::endl;
+                    std::cout << "Processor: " << count << " messages processed"
+                              << " (" << std::fixed << std::setprecision(0) << msgs_per_sec << " msgs/sec, "
+                              << "Queue: " << market_updates.size() << ")" << std::endl;
                 }
             }
             
@@ -265,8 +263,8 @@ public:
             f.get();
         }
         
-        std::cout << "All batches processed, waiting for strategy to catch up..." << std::endl;
-        std::cout << "Queue size: " << market_updates.size() << std::endl;
+        std::cout << "\nProcessing complete - waiting for strategy to catch up (" 
+                  << market_updates.size() << " updates in queue)..." << std::endl;
         
         // Signal that no more updates will be coming
         market_updates.set_done();
@@ -280,8 +278,10 @@ public:
             end_time - start_time).count();
         
         std::cout << "Processing complete!" << std::endl;
+        // Show actual processed message count
         std::cout << "Processed " << count << " messages in " << elapsed << " seconds" << std::endl;
         std::cout << "Rate: " << (count / (double)elapsed) << " messages per second" << std::endl;
+        // Show actual market updates count
         std::cout << "Market updates processed: " << updates_processed.load() << std::endl;
         
         // Print trading strategy performance

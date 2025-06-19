@@ -1,22 +1,27 @@
+
 #include "../include/json_serializer.h"
 #include <string>
 #include <variant>
 
 namespace itch {
 
+// Helper to convert arrays to strings
 template<size_t N>
 std::string array_to_json_string(const std::array<char, N>& arr) {
     return "\"" + array_to_string(arr) + "\"";
 }
 
+// Main message serialization function
 nlohmann::json JsonSerializer::to_json(const Message& message) {
     nlohmann::json result;
     
+    // Order the fields according to the expected format (tag, stock_locate, tracking_number, timestamp, body)
     result["tag"] = message.tag;
     result["stock_locate"] = message.stock_locate;
     result["tracking_number"] = message.tracking_number;
     result["timestamp"] = message.timestamp;
     
+    // Use a visitor pattern to handle the variant
     result["body"] = std::visit([](auto&& arg) -> nlohmann::json {
         using T = std::decay_t<decltype(arg)>;
         
@@ -70,17 +75,18 @@ nlohmann::json JsonSerializer::to_json(const Message& message) {
     return result;
 }
 
+// Individual message type serializers
 nlohmann::json JsonSerializer::add_order_to_json(const AddOrder& order) {
     nlohmann::json json;
     
     json["reference"] = order.reference;
     json["side"] = to_string(order.side);
     json["shares"] = order.shares;
-    json["stock"] = array_to_string(order.stock, true);
+    json["stock"] = array_to_string(order.stock, true); // Preserve spaces in stock symbol
     json["price"] = order.price.to_string();
     
     if (order.mpid) {
-        json["mpid"] = array_to_string(order.mpid.value(), true);
+        json["mpid"] = array_to_string(order.mpid.value(), true); // Preserve spaces in mpid
     }
     
     return json;
@@ -96,7 +102,7 @@ nlohmann::json JsonSerializer::cross_trade_to_json(const CrossTrade& trade) {
     nlohmann::json json;
     
     json["shares"] = trade.shares;
-    json["stock"] = array_to_string(trade.stock, true);
+    json["stock"] = array_to_string(trade.stock, true); // Preserve spaces in stock symbol
     json["cross_price"] = trade.cross_price.to_string();
     json["match_number"] = trade.match_number;
     json["cross_type"] = to_string(trade.cross_type);
@@ -116,7 +122,7 @@ nlohmann::json JsonSerializer::imbalance_indicator_to_json(const ImbalanceIndica
     json["paired_shares"] = indicator.paired_shares;
     json["imbalance_shares"] = indicator.imbalance_shares;
     json["imbalance_direction"] = to_string(indicator.imbalance_direction);
-    json["stock"] = array_to_string(indicator.stock, true);
+    json["stock"] = array_to_string(indicator.stock, true); // Preserve spaces in stock symbol
     json["far_price"] = indicator.far_price.to_string();
     json["near_price"] = indicator.near_price.to_string();
     json["current_ref_price"] = indicator.current_ref_price.to_string();
@@ -129,7 +135,7 @@ nlohmann::json JsonSerializer::imbalance_indicator_to_json(const ImbalanceIndica
 nlohmann::json JsonSerializer::ipo_quoting_period_to_json(const IpoQuotingPeriod& period) {
     nlohmann::json json;
     
-    json["stock"] = array_to_string(period.stock, true);
+    json["stock"] = array_to_string(period.stock, true); // Preserve spaces in stock symbol
     json["release_time"] = period.release_time;
     json["release_qualifier"] = to_string(period.release_qualifier);
     json["price"] = period.price.to_string();
@@ -140,7 +146,7 @@ nlohmann::json JsonSerializer::ipo_quoting_period_to_json(const IpoQuotingPeriod
 nlohmann::json JsonSerializer::luld_auction_collar_to_json(const LULDAuctionCollar& collar) {
     nlohmann::json json;
     
-    json["stock"] = array_to_string(collar.stock, true);
+    json["stock"] = array_to_string(collar.stock, true); // Preserve spaces in stock symbol
     json["ref_price"] = collar.ref_price.to_string();
     json["upper_price"] = collar.upper_price.to_string();
     json["lower_price"] = collar.lower_price.to_string();
@@ -165,7 +171,7 @@ nlohmann::json JsonSerializer::non_cross_trade_to_json(const NonCrossTrade& trad
     json["reference"] = trade.reference;
     json["side"] = to_string(trade.side);
     json["shares"] = trade.shares;
-    json["stock"] = array_to_string(trade.stock, true);
+    json["stock"] = array_to_string(trade.stock, true); // Preserve spaces in stock symbol
     json["price"] = trade.price.to_string();
     json["match_number"] = trade.match_number;
     
@@ -206,8 +212,8 @@ nlohmann::json JsonSerializer::order_executed_with_price_to_json(const OrderExec
 nlohmann::json JsonSerializer::market_participant_position_to_json(const MarketParticipantPosition& position) {
     nlohmann::json json;
     
-    json["mpid"] = array_to_string(position.mpid, true);
-    json["stock"] = array_to_string(position.stock, true);
+    json["mpid"] = array_to_string(position.mpid, true); // Preserve spaces in mpid
+    json["stock"] = array_to_string(position.stock, true); // Preserve spaces in stock symbol
     json["primary_market_maker"] = position.primary_market_maker;
     json["market_maker_mode"] = to_string(position.market_maker_mode);
     json["market_participant_state"] = to_string(position.market_participant_state);
@@ -218,7 +224,7 @@ nlohmann::json JsonSerializer::market_participant_position_to_json(const MarketP
 nlohmann::json JsonSerializer::reg_sho_restriction_to_json(const RegShoRestriction& restriction) {
     nlohmann::json json;
     
-    json["stock"] = array_to_string(restriction.stock, true);
+    json["stock"] = array_to_string(restriction.stock, true); // Preserve spaces in stock symbol
     json["action"] = to_string(restriction.action);
     
     return json;
@@ -238,7 +244,7 @@ nlohmann::json JsonSerializer::replace_order_to_json(const ReplaceOrder& order) 
 nlohmann::json JsonSerializer::stock_directory_to_json(const StockDirectory& directory) {
     nlohmann::json json;
     
-    json["stock"] = array_to_string(directory.stock, true);
+    json["stock"] = array_to_string(directory.stock, true); // Preserve spaces in stock symbol
     json["market_category"] = to_string(directory.market_category);
     json["financial_status"] = to_string(directory.financial_status);
     json["round_lot_size"] = directory.round_lot_size;
@@ -282,9 +288,9 @@ nlohmann::json JsonSerializer::system_event_to_json(const SystemEvent& event) {
 nlohmann::json JsonSerializer::trading_action_to_json(const TradingAction& action) {
     nlohmann::json json;
     
-    json["stock"] = array_to_string(action.stock, true);
+    json["stock"] = array_to_string(action.stock, true); // Preserve spaces in stock symbol
     json["trading_state"] = to_string(action.trading_state);
-    json["reason"] = array_to_string(action.reason, true);
+    json["reason"] = array_to_string(action.reason, true); // Preserve spaces in reason
     
     return json;
 }
@@ -292,7 +298,7 @@ nlohmann::json JsonSerializer::trading_action_to_json(const TradingAction& actio
 nlohmann::json JsonSerializer::retail_price_improvement_indicator_to_json(const RetailPriceImprovementIndicator& indicator) {
     nlohmann::json json;
     
-    json["stock"] = array_to_string(indicator.stock, true);
+    json["stock"] = array_to_string(indicator.stock, true); // Preserve spaces in stock symbol
     json["interest_flag"] = to_string(indicator.interest_flag);
     
     return json;
@@ -362,4 +368,4 @@ std::string JsonSerializer::interest_flag_to_string(InterestFlag flag) {
     return to_string(flag);
 }
 
-} 
+} // namespace itch

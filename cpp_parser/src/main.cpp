@@ -13,20 +13,23 @@
 
 namespace fs = std::filesystem;
 
+// Function to get current memory usage in KB
 size_t get_memory_usage() {
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
     return usage.ru_maxrss;
 }
 
+// Default configuration
 bool debug_mode = false;
-size_t message_limit = 0;
+size_t message_limit = 0; // 0 means unlimited
 
+// CLI configuration structure
 struct CliConfig {
     std::string input_path;
     std::string output_path;
     bool debug_mode = false;
-    size_t message_limit = 0;
+    size_t message_limit = 0; // 0 means unlimited
     bool output_to_stdout = false;
     bool show_stats = false;
 };
@@ -76,16 +79,19 @@ CliConfig parse_arguments(int argc, char** argv) {
             print_usage(argv[0]);
             exit(1);
         } else {
+            // Assume this is the input file
             config.input_path = arg;
         }
     }
     
+    // Check that we have an input file
     if (config.input_path.empty()) {
         std::cerr << "Error: No input file specified." << std::endl;
         print_usage(argv[0]);
         exit(1);
     }
     
+    // If no output path was specified, use input path + .json
     if (config.output_path.empty()) {
         config.output_path = config.input_path + ".json";
     }
@@ -102,8 +108,10 @@ int main(int argc, char** argv) {
             std::cout << "*** Message limit: " << (config.message_limit > 0 ? std::to_string(config.message_limit) : "No limit") << " ***" << std::endl;
         }
         
+        // Create the parser
         std::unique_ptr<itch::Parser> parser;
         
+        // Check if the file is gzipped
         std::ifstream file(config.input_path, std::ios::binary);
         if (!file) {
             std::cerr << "Cannot open file: " << config.input_path << std::endl;
@@ -137,6 +145,7 @@ int main(int argc, char** argv) {
             return 1;
         }
         
+        // Prepare output stream (file or stdout)
         std::ofstream output_file;
         std::ostream* output_stream = nullptr;
         
@@ -155,8 +164,10 @@ int main(int argc, char** argv) {
             }
         }
         
+        // Write JSON array start
         *output_stream << "[";
         
+        // Set up message counters for statistics
         std::map<uint8_t, size_t> message_type_counts;
         size_t message_count = 0;
         bool first_message = true;
@@ -173,22 +184,27 @@ int main(int argc, char** argv) {
                 }
             }
             
+            // Convert to JSON and write to output
             nlohmann::json json_message = itch::JsonSerializer::to_json(*message);
             std::string json_str = json_message.dump();
             *output_stream << json_str;
             
+            // Update message counters
             message_count++;
             message_type_counts[message->tag]++;
             
             if (config.debug_mode && message_count <= 5) {
+                // Print first few messages for debugging
                 std::cout << "Message " << message_count << ": " << json_str << std::endl;
             }
             
+            // Print progress (less frequently for large datasets)
             size_t progress_interval = config.message_limit > 1000000 ? 100000 : 10000;
             if (message_count % progress_interval == 0) {
                 std::cout << "Processed " << message_count << " messages..." << std::endl;
             }
             
+            // Stop if we've reached the message limit
             if (config.message_limit > 0 && message_count >= config.message_limit) {
                 std::cout << "Reached message limit of " << config.message_limit << ". Stopping." << std::endl;
                 break;
@@ -200,15 +216,18 @@ int main(int argc, char** argv) {
         size_t end_memory = get_memory_usage();
         size_t memory_used = end_memory - start_memory;
         
+        // Write JSON array end
         *output_stream << "]";
         
         if (!config.output_to_stdout) {
             output_file.close();
         }
         
+        // Print summary statistics
         std::cout << "Successfully processed " << message_count << " messages." << std::endl;
         std::cout << "Output written to: " << config.output_path << std::endl;
         
+        // Print processing performance statistics
         std::cout << "\nPerformance metrics:" << std::endl;
         std::cout << "-------------------" << std::endl;
         std::cout << "Processing time: " << (duration / 1000.0) << " seconds" << std::endl;
@@ -216,10 +235,12 @@ int main(int argc, char** argv) {
                   << (message_count * 1000.0 / duration) << " messages/second" << std::endl;
         std::cout << "Memory usage: " << (memory_used / 1024.0) << " MB" << std::endl;
         
+        // Print detailed message type statistics if requested
         if (config.show_stats) {
             std::cout << "\nMessage type statistics:" << std::endl;
             std::cout << "---------------------" << std::endl;
             for (const auto& [type, count] : message_type_counts) {
+                // Get message type name
                 std::string type_name;
                 switch (type) {
                     case 'S': type_name = "System Event"; break;
